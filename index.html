@@ -320,19 +320,18 @@
       </svg>
     </button>
   </div>
-  <div class="footnote">Fuzone は Groq API（Compound Mini）を利用しています</div>
+  <div class="footnote">Fuzone は GAS プロキシ経由で Groq API（Compound Mini）を利用しています</div>
 </footer>
 
 <script>
 /* ============================================================
-   ▼▼▼ ここにGroq APIキーを入力してください ▼▼▼
-   https://console.groq.com/keys から取得できます
+   ▼▼▼ ここにGASウェブアプリのURLを入力してください ▼▼▼
+   Google Apps Script (fuzone-proxy.gs) をデプロイして発行された
+   ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
+   を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GROQ_API_KEY = "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";
+const GAS_ENDPOINT = "ここにGASウェブアプリのURLを入力";
 /* ============================================================ */
-
-const MODEL = "groq/compound-mini";
-const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const chatInner = document.getElementById('chatInner');
 const chatMain = document.getElementById('chatMain');
@@ -411,8 +410,8 @@ async function sendMessage(){
   const text = userInput.value.trim();
   if(!text || isSending) return;
 
-  if(!GROQ_API_KEY || GROQ_API_KEY === "ここにAPIキーを入力"){
-    addMessage('bot', 'APIキーが設定されていません。HTMLファイル内の `GROQ_API_KEY` の部分にご自身のGroq APIキーを入力してください。', {error:true});
+  if(!GAS_ENDPOINT || GAS_ENDPOINT === "https://script.google.com/macros/s/AKfycbxljP6QECby_qwX1gsne-8NPZ-tnjYIhBy2HYEA1vz2jzNH3X-65ringIPGmpwmeU_AbQ/exec"){
+    addMessage('bot', 'GASのウェブアプリURLが設定されていません。HTMLファイル内の `GAS_ENDPOINT` の部分にデプロイ済みのGASウェブアプリURLを入力してください。', {error:true});
     return;
   }
 
@@ -428,24 +427,27 @@ async function sendMessage(){
   const thinkingBubble = addMessage('bot', '', { thinking: true });
 
   try{
-    const response = await fetch(API_URL, {
+    // GAS側でのCORSプリフライト回避のため text/plain で送信し、
+    // GAS側でJSON.parseしてリクエストを処理する
+    const response = await fetch(GAS_ENDPOINT, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_API_KEY
+        'Content-Type': 'text/plain;charset=utf-8'
       },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: conversation
-      })
+      body: JSON.stringify({ messages: conversation })
     });
 
     if(!response.ok){
       const errText = await response.text();
-      throw new Error('APIエラー (' + response.status + '): ' + errText);
+      throw new Error('サーバーエラー (' + response.status + '): ' + errText);
     }
 
     const data = await response.json();
+
+    if(data.error){
+      throw new Error(data.error + (data.detail ? ' / ' + data.detail : ''));
+    }
+
     const reply = data.choices?.[0]?.message?.content ?? '応答を取得できませんでした。';
 
     thinkingBubble.classList.remove('thinking');
