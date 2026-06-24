@@ -330,7 +330,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "ここにGASウェブアプリのURLを入力";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxljP6QECby_qwX1gsne-8NPZ-tnjYIhBy2HYEA1vz2jzNH3X-65ringIPGmpwmeU_AbQ/exec";
 /* ============================================================ */
 
 const chatInner = document.getElementById('chatInner');
@@ -410,7 +410,7 @@ async function sendMessage(){
   const text = userInput.value.trim();
   if(!text || isSending) return;
 
-  if(!GAS_ENDPOINT || GAS_ENDPOINT === "https://script.google.com/macros/s/AKfycbxljP6QECby_qwX1gsne-8NPZ-tnjYIhBy2HYEA1vz2jzNH3X-65ringIPGmpwmeU_AbQ/exec"){
+  if(!GAS_ENDPOINT || GAS_ENDPOINT === "ここにGASウェブアプリのURLを入力"){
     addMessage('bot', 'GASのウェブアプリURLが設定されていません。HTMLファイル内の `GAS_ENDPOINT` の部分にデプロイ済みのGASウェブアプリURLを入力してください。', {error:true});
     return;
   }
