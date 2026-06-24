@@ -287,9 +287,88 @@
     footer{ padding: 12px 14px 16px; }
     .bubble{ max-width: 86%; }
   }
+
+  /* Password gate */
+  .pw-overlay{
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(232,162,58,0.07), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(232,162,58,0.05), transparent 45%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index: 1000;
+  }
+  .pw-overlay.hidden{ display:none; }
+  .pw-modal{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px 32px;
+    width: 320px;
+    text-align:center;
+  }
+  .pw-icon{ font-size: 30px; margin-bottom: 6px; }
+  .pw-modal h2{
+    font-family: var(--font-display);
+    color: var(--accent);
+    margin: 0 0 6px;
+    font-size: 20px;
+  }
+  .pw-modal p{
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 0 0 18px;
+    line-height: 1.6;
+  }
+  .pw-modal input{
+    width: 100%;
+    background: var(--panel-light);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 14px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    margin-bottom: 12px;
+    box-sizing: border-box;
+  }
+  .pw-modal input:focus{ border-color: var(--accent-dim); }
+  .pw-modal button{
+    width: 100%;
+    background: var(--accent);
+    color: #1a1408;
+    border: none;
+    border-radius: 10px;
+    padding: 11px 0;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .pw-modal button:hover{ transform: translateY(-1px); }
+  .pw-error{
+    color: var(--danger);
+    font-size: 12.5px;
+    margin-top: 12px;
+    min-height: 16px;
+  }
 </style>
 </head>
 <body>
+
+<div class="pw-overlay" id="pwOverlay">
+  <div class="pw-modal">
+    <div class="pw-icon">🔒</div>
+    <h2>Fuzone にアクセス</h2>
+    <p>続けるにはアクセスパスワードを入力してください。</p>
+    <input type="password" id="pwInput" placeholder="パスワード" autocomplete="off">
+    <button id="pwSubmit">入る</button>
+    <div class="pw-error" id="pwError"></div>
+  </div>
+</div>
 
 <header>
   <div class="brand">
@@ -330,8 +409,11 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxljP6QECby_qwX1gsne-8NPZ-tnjYIhBy2HYEA1vz2jzNH3X-65ringIPGmpwmeU_AbQ/exec";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxU2tE9acen66M8XdoqmgUaXIWfqdUyc7lNF24sea5yIzRvT1yfBU79d2UCwmJTYk26QA/exec";
 /* ============================================================ */
+/* アクセスパスワードはコード内には書きません。
+   ページを開いたときに入力ダイアログが表示され、入力された値は
+   ブラウザのメモリ上にのみ保持されます（ソースコードには残りません）。*/
 
 const chatInner = document.getElementById('chatInner');
 const chatMain = document.getElementById('chatMain');
@@ -343,6 +425,32 @@ const statusText = document.getElementById('statusText');
 
 let conversation = [];
 let isSending = false;
+let sessionPassword = null;
+
+const pwOverlay = document.getElementById('pwOverlay');
+const pwInput = document.getElementById('pwInput');
+const pwSubmit = document.getElementById('pwSubmit');
+const pwError = document.getElementById('pwError');
+
+function unlock(){
+  const val = pwInput.value;
+  if(!val){
+    pwError.textContent = 'パスワードを入力してください。';
+    return;
+  }
+  sessionPassword = val;
+  pwOverlay.classList.add('hidden');
+  userInput.focus();
+}
+
+pwSubmit.addEventListener('click', unlock);
+pwInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    unlock();
+  }
+});
+// パスワードの正誤はGAS側で検証される。間違っていた場合はチャット送信時にエラーが表示される。
 
 function setStatus(state){
   if(state === 'live'){
@@ -434,7 +542,7 @@ async function sendMessage(){
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
-      body: JSON.stringify({ messages: conversation })
+      body: JSON.stringify({ password: sessionPassword, messages: conversation })
     });
 
     if(!response.ok){
@@ -445,6 +553,12 @@ async function sendMessage(){
     const data = await response.json();
 
     if(data.error){
+      if(data.error.indexOf('パスワード') !== -1){
+        sessionPassword = null;
+        pwInput.value = '';
+        pwError.textContent = 'パスワードが正しくありません。もう一度入力してください。';
+        pwOverlay.classList.remove('hidden');
+      }
       throw new Error(data.error + (data.detail ? ' / ' + data.detail : ''));
     }
 
@@ -468,7 +582,7 @@ async function sendMessage(){
   }
 }
 
-userInput.focus();
+pwInput.focus();
 </script>
 
 </body>
