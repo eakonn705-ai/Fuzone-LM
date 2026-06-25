@@ -370,10 +370,21 @@
   </div>
 </div>
 
+<div class="pw-overlay" id="userOverlay" style="display:none;">
+  <div class="pw-modal">
+    <div class="pw-icon">👤</div>
+    <h2>ユーザー名</h2>
+    <p>ユーザー名を入力してください。<br>初めての名前なら新しいアカウントが作られ、<br>既存の名前ならその記憶を引き継いで続けられます。</p>
+    <input type="text" id="userNameInput" placeholder="ユーザー名" autocomplete="off" maxlength="50">
+    <button id="userNameSubmit">始める</button>
+    <div class="pw-error" id="userNameError"></div>
+  </div>
+</div>
+
 <header>
   <div class="brand">
     <div class="brand-mark">Fu<span>zone</span></div>
-    <div class="brand-sub">Hangaku Service</div>
+    <div class="brand-sub">Compound Mini</div>
   </div>
   <div class="status">
     <div class="dot" id="statusDot"></div>
@@ -385,7 +396,7 @@
   <div class="chat-inner" id="chatInner">
     <div class="empty-state" id="emptyState">
       <div class="glyph">附Z</div>
-      <p>Fuzone へようこそ。<br>下の入力欄からメッセージを送って Fuzone と話してみましょう。</p>
+      <p>Fuzoneへようこそ。<br>下の入力欄からメッセージを送って、Groq Compound Miniと話してみましょう。</p>
     </div>
   </div>
 </main>
@@ -399,7 +410,7 @@
       </svg>
     </button>
   </div>
-  <div class="footnote">Fuzone は GAS プロキシ経由で Groq API を利用しています</div>
+  <div class="footnote">Fuzone は GAS プロキシ経由で Groq API（Compound Mini）を利用しています</div>
 </footer>
 
 <script>
@@ -409,7 +420,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzn7_XwzXKSwFHpimsEYqbjpyTmxsVgjbkTQ8DkMeMVlxoKon9AsS-hEfK36_pLyafTFA/exec";
+const GAS_ENDPOINT = "ここにGASウェブアプリのURLを入力";
 /* ============================================================ */
 /* アクセスパスワードはコード内には書きません。
    ページを開いたときに入力ダイアログが表示され、入力された値は
@@ -426,11 +437,17 @@ const statusText = document.getElementById('statusText');
 let conversation = [];
 let isSending = false;
 let sessionPassword = null;
+let currentUsername = null;
 
 const pwOverlay = document.getElementById('pwOverlay');
 const pwInput = document.getElementById('pwInput');
 const pwSubmit = document.getElementById('pwSubmit');
 const pwError = document.getElementById('pwError');
+
+const userOverlay = document.getElementById('userOverlay');
+const userNameInput = document.getElementById('userNameInput');
+const userNameSubmit = document.getElementById('userNameSubmit');
+const userNameError = document.getElementById('userNameError');
 
 function unlock(){
   const val = pwInput.value;
@@ -440,7 +457,8 @@ function unlock(){
   }
   sessionPassword = val;
   pwOverlay.classList.add('hidden');
-  userInput.focus();
+  userOverlay.style.display = 'flex';
+  userNameInput.focus();
 }
 
 pwSubmit.addEventListener('click', unlock);
@@ -448,6 +466,68 @@ pwInput.addEventListener('keydown', (e) => {
   if(e.key === 'Enter'){
     e.preventDefault();
     unlock();
+  }
+});
+
+async function loginUser(){
+  const name = userNameInput.value.trim();
+  if(!name){
+    userNameError.textContent = 'ユーザー名を入力してください。';
+    return;
+  }
+  if(!GAS_ENDPOINT || GAS_ENDPOINT === "ここにGASウェブアプリのURLを入力"){
+    userNameError.textContent = 'GASのURLが未設定です。HTML内の GAS_ENDPOINT を設定してください。';
+    return;
+  }
+
+  userNameSubmit.disabled = true;
+  userNameError.textContent = '確認中…';
+
+  try{
+    const response = await fetch(GAS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ password: sessionPassword, username: name, action: 'login' })
+    });
+
+    const data = await response.json();
+
+    if(data.error){
+      if(data.error.indexOf('パスワード') !== -1){
+        // パスワード自体が誤っていた場合は、パスワード画面に戻す
+        sessionPassword = null;
+        userOverlay.style.display = 'none';
+        pwInput.value = '';
+        pwError.textContent = 'パスワードが正しくありません。もう一度入力してください。';
+        pwOverlay.classList.remove('hidden');
+        return;
+      }
+      userNameError.textContent = data.error;
+      return;
+    }
+
+    currentUsername = name;
+    userOverlay.style.display = 'none';
+    userInput.focus();
+
+    if(data.memory){
+      addMessage('bot', '「' + name + '」さん、お帰りなさい。以前の記憶を踏まえて続けます。');
+    } else {
+      addMessage('bot', '「' + name + '」さんとして新しいアカウントを作成しました。よろしくお願いします。');
+    }
+
+  } catch(err){
+    userNameError.textContent = '通信エラー: ' + err.message;
+  } finally {
+    userNameSubmit.disabled = false;
+  }
+}
+
+userNameSubmit.addEventListener('click', loginUser);
+userNameInput.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    loginUser();
   }
 });
 // パスワードの正誤はGAS側で検証される。間違っていた場合はチャット送信時にエラーが表示される。
@@ -522,6 +602,10 @@ async function sendMessage(){
     addMessage('bot', 'GASのウェブアプリURLが設定されていません。HTMLファイル内の `GAS_ENDPOINT` の部分にデプロイ済みのGASウェブアプリURLを入力してください。', {error:true});
     return;
   }
+  if(!currentUsername){
+    addMessage('bot', 'ユーザー名が設定されていません。ページを再読み込みして、ユーザー名を入力してください。', {error:true});
+    return;
+  }
 
   isSending = true;
   sendBtn.disabled = true;
@@ -542,7 +626,7 @@ async function sendMessage(){
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
-      body: JSON.stringify({ password: sessionPassword, messages: conversation })
+      body: JSON.stringify({ password: sessionPassword, username: currentUsername, messages: conversation })
     });
 
     if(!response.ok){
