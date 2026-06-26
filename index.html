@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fuzone — AIチャット</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700;800&family=Zen+Maru+Gothic:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -309,6 +311,43 @@
   .bubble th{ background: var(--panel-light); color: var(--accent); }
   .bubble hr{ border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
+  /* PDF export block */
+  .pdf-block{
+    margin: 12px 0;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    background: linear-gradient(165deg, rgba(231,162,60,0.06), rgba(0,0,0,0.12));
+    overflow: hidden;
+  }
+  .pdf-block-content{
+    padding: 16px 18px 4px;
+    background: var(--bot-bubble);
+  }
+  .pdf-block-content > *:first-child{ margin-top: 0; }
+  .pdf-export-btn{
+    width: 100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 7px;
+    background: linear-gradient(155deg, rgba(231,162,60,0.16), rgba(231,162,60,0.06));
+    border: none;
+    border-top: 1px solid var(--border-soft);
+    color: var(--accent-soft);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 0;
+    cursor: pointer;
+    transition: background .2s, color .2s;
+  }
+  .pdf-export-btn:hover{
+    background: linear-gradient(155deg, rgba(231,162,60,0.26), rgba(231,162,60,0.1));
+    color: var(--text);
+  }
+  .pdf-export-btn:disabled{ opacity: 0.6; cursor: default; }
+  .pdf-export-btn .pdf-icon{ font-size: 14px; }
+
   /* Footer / input */
   footer{
     border-top: 1px solid transparent;
@@ -558,7 +597,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzCIE4xNcSMIM-QQXdiZFAQtqA2vmfl8uDPDkDxlWBT5P836vlGG6U9xK_M1OHHN6q4Kg/exec";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwTzM8eZXoyB9qi9rMIY959Ar_k9M4FCuUlaE_rJ36lePALVul49nnIIQQsL4wwYUf6xw/exec";
 /* ============================================================ */
 /* アクセスパスワードはコード内には書きません。
    ページを開いたときに入力ダイアログが表示され、入力された値は
@@ -690,6 +729,118 @@ function scrollToBottom(){
   chatMain.scrollTop = chatMain.scrollHeight;
 }
 
+/**
+ * AIの回答テキストを、通常のMarkdown部分と
+ * ===PDF_START=== 〜 ===PDF_END=== で囲まれたPDF化対象部分に分けて表示する。
+ */
+let pdfBlockCounter = 0;
+
+function renderBotMessage(container, rawText){
+  container.innerHTML = '';
+  const regex = /===PDF_START===([\s\S]*?)===PDF_END===/g;
+  let lastIndex = 0;
+  let match;
+  let foundAny = false;
+
+  while((match = regex.exec(rawText)) !== null){
+    foundAny = true;
+    const before = rawText.slice(lastIndex, match.index);
+    if(before.trim()){
+      const textDiv = document.createElement('div');
+      textDiv.innerHTML = marked.parse(before);
+      container.appendChild(textDiv);
+    }
+
+    const pdfMarkdown = match[1].trim();
+    const blockId = 'pdfblock-' + (++pdfBlockCounter);
+
+    const pdfWrap = document.createElement('div');
+    pdfWrap.className = 'pdf-block';
+
+    const pdfInner = document.createElement('div');
+    pdfInner.className = 'pdf-block-content';
+    pdfInner.id = blockId;
+    pdfInner.innerHTML = marked.parse(pdfMarkdown);
+
+    const pdfBtn = document.createElement('button');
+    pdfBtn.className = 'pdf-export-btn';
+    pdfBtn.innerHTML = '<span class="pdf-icon">📄</span><span>PDFとして保存</span>';
+    pdfBtn.addEventListener('click', () => exportElementToPdf(pdfInner, pdfBtn));
+
+    pdfWrap.appendChild(pdfInner);
+    pdfWrap.appendChild(pdfBtn);
+    container.appendChild(pdfWrap);
+
+    lastIndex = regex.lastIndex;
+  }
+
+  const rest = rawText.slice(lastIndex);
+  if(rest.trim() || !foundAny){
+    const textDiv = document.createElement('div');
+    textDiv.innerHTML = marked.parse(rest);
+    container.appendChild(textDiv);
+  }
+}
+
+/**
+ * 指定した要素の見た目をそのまま画像化し、PDFとして書き出してダウンロードする。
+ * (html2canvas + jsPDF。実際の表示をキャプチャするため日本語フォントも問題なく扱える)
+ */
+async function exportElementToPdf(el, btn){
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="pdf-icon">⏳</span><span>PDFを作成中…</span>';
+
+  try{
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#1d1b15',
+      scale: 2,
+      useCORS: true
+    });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+
+    const margin = 28;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const usableWidth = pageWidth - margin * 2;
+    const usableHeight = pageHeight - margin * 2;
+
+    const imgWidth = usableWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png');
+
+    let heightLeft = imgHeight;
+    let renderedHeight = 0;
+
+    // 複数ページにまたがる場合は、ページごとに描画位置をずらして分割する
+    while(heightLeft > 0){
+      pdf.addImage(
+        imgData,
+        'PNG',
+        margin,
+        margin - renderedHeight,
+        imgWidth,
+        imgHeight
+      );
+      heightLeft -= usableHeight;
+      renderedHeight += usableHeight;
+      if(heightLeft > 0){
+        pdf.addPage();
+      }
+    }
+
+    pdf.save('fuzone-' + Date.now() + '.pdf');
+
+  } catch(err){
+    alert('PDFの作成に失敗しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalLabel;
+  }
+}
+
 function addMessage(role, content, opts = {}){
   if(emptyState) emptyState.remove();
 
@@ -708,7 +859,7 @@ function addMessage(role, content, opts = {}){
   } else if(role === 'user'){
     bubble.textContent = content;
   } else {
-    bubble.innerHTML = marked.parse(content);
+    renderBotMessage(bubble, content);
   }
 
   row.appendChild(avatar);
@@ -787,7 +938,7 @@ async function sendMessage(){
     const reply = data.choices?.[0]?.message?.content ?? '応答を取得できませんでした。';
 
     thinkingBubble.classList.remove('thinking');
-    thinkingBubble.innerHTML = marked.parse(reply);
+    renderBotMessage(thinkingBubble, reply);
     conversation.push({ role: 'assistant', content: reply });
     setStatus('live');
 
