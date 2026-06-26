@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fuzone — AIチャット</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -765,7 +764,7 @@ function renderBotMessage(container, rawText){
     const pdfBtn = document.createElement('button');
     pdfBtn.className = 'pdf-export-btn';
     pdfBtn.innerHTML = '<span class="pdf-icon">📄</span><span>PDFとして保存</span>';
-    pdfBtn.addEventListener('click', () => exportElementToPdf(pdfInner, pdfBtn));
+    pdfBtn.addEventListener('click', () => exportMarkdownToPdf(pdfMarkdown, pdfBtn));
 
     pdfWrap.appendChild(pdfInner);
     pdfWrap.appendChild(pdfBtn);
@@ -783,53 +782,120 @@ function renderBotMessage(container, rawText){
 }
 
 /**
- * 指定した要素の見た目をそのまま画像化し、PDFとして書き出してダウンロードする。
- * (html2canvas + jsPDF。実際の表示をキャプチャするため日本語フォントも問題なく扱える)
+ * 日本語フォント(Noto Sans JP)をCDNから取得し、Base64化してキャッシュする。
+ * 1度取得すれば、以降のPDF作成では再取得しない。
  */
-async function exportElementToPdf(el, btn){
+let cachedJapaneseFontBase64 = null;
+
+async function getJapaneseFontBase64(){
+  if(cachedJapaneseFontBase64){
+    return cachedJapaneseFontBase64;
+  }
+  const fontUrl = 'https://cdn.jsdelivr.net/gh/kongou-ae/font/NotoSansJP-Regular.ttf';
+  const res = await fetch(fontUrl);
+  if(!res.ok){
+    throw new Error('日本語フォントの取得に失敗しました (status ' + res.status + ')');
+  }
+  const buffer = await res.arrayBuffer();
+  cachedJapaneseFontBase64 = arrayBufferToBase64(buffer);
+  return cachedJapaneseFontBase64;
+}
+
+function arrayBufferToBase64(buffer){
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for(let i = 0; i < bytes.length; i += chunkSize){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Markdownテキストを、選択・コピー可能なテキストとしてPDFに描き出す。
+ * (見た目はシンプルになるが、文字としてPDFに埋め込まれる)
+ */
+async function exportMarkdownToPdf(markdownText, btn){
   const originalLabel = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<span class="pdf-icon">⏳</span><span>PDFを作成中…</span>';
+  btn.innerHTML = '<span class="pdf-icon">⏳</span><span>フォントを準備中…</span>';
 
   try{
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#1d1b15',
-      scale: 2,
-      useCORS: true
-    });
+    const fontBase64 = await getJapaneseFontBase64();
 
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+    pdf.addFileToVFS('NotoSansJP-Regular.ttf', fontBase64);
+    pdf.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
+    pdf.setFont('NotoSansJP');
 
-    const margin = 28;
+    btn.innerHTML = '<span class="pdf-icon">⏳</span><span>PDFを作成中…</span>';
+
+    const margin = 50;
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const usableWidth = pageWidth - margin * 2;
-    const usableHeight = pageHeight - margin * 2;
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
 
-    const imgWidth = usableWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    const imgData = canvas.toDataURL('image/png');
-
-    let heightLeft = imgHeight;
-    let renderedHeight = 0;
-
-    // 複数ページにまたがる場合は、ページごとに描画位置をずらして分割する
-    while(heightLeft > 0){
-      pdf.addImage(
-        imgData,
-        'PNG',
-        margin,
-        margin - renderedHeight,
-        imgWidth,
-        imgHeight
-      );
-      heightLeft -= usableHeight;
-      renderedHeight += usableHeight;
-      if(heightLeft > 0){
+    function ensureSpace(lineHeight){
+      if(y + lineHeight > pageHeight - margin){
         pdf.addPage();
+        pdf.setFont('NotoSansJP');
+        y = margin;
       }
     }
+
+    function drawParagraph(text, fontSize, lineHeight, indent){
+      indent = indent || 0;
+      pdf.setFontSize(fontSize);
+      const lines = pdf.splitTextToSize(text, maxWidth - indent);
+      lines.forEach((line) => {
+        ensureSpace(lineHeight);
+        pdf.text(line, margin + indent, y);
+        y += lineHeight;
+      });
+    }
+
+    const rawLines = markdownText.split('\n');
+
+    rawLines.forEach((rawLine) => {
+      const line = rawLine.trim();
+      if(!line){
+        y += 8;
+        return;
+      }
+
+      // **太字** の記号は除去する(埋め込みフォントが1種類のため太字表現はしない)
+      const cleaned = line.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1');
+
+      if(/^### /.test(line)){
+        y += 6;
+        drawParagraph(cleaned.replace(/^### /, ''), 13, 18);
+        y += 2;
+      } else if(/^## /.test(line)){
+        y += 8;
+        drawParagraph(cleaned.replace(/^## /, ''), 15, 20);
+        y += 3;
+      } else if(/^# /.test(line)){
+        y += 10;
+        drawParagraph(cleaned.replace(/^# /, ''), 18, 24);
+        y += 4;
+      } else if(/^[-・]\s+/.test(line)){
+        drawParagraph('・' + cleaned.replace(/^[-・]\s+/, ''), 11, 16, 12);
+      } else if(/^\d+[\.\)]\s+/.test(line)){
+        drawParagraph(cleaned, 11, 16, 12);
+      } else if(/^\|.*\|$/.test(line)){
+        const cells = cleaned
+          .split('|')
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0 && !/^-+$/.test(c));
+        if(cells.length){
+          drawParagraph(cells.join('　|　'), 10.5, 15);
+        }
+      } else {
+        drawParagraph(cleaned, 11.5, 17);
+      }
+    });
 
     pdf.save('fuzone-' + Date.now() + '.pdf');
 
