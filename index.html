@@ -782,21 +782,40 @@ function renderBotMessage(container, rawText){
 }
 
 /**
- * 日本語フォント(Noto Sans JP)をCDNから取得し、Base64化してキャッシュする。
+ * 日本語フォント(Noto Sans JP)を取得し、Base64化してキャッシュする。
  * 1度取得すれば、以降のPDF作成では再取得しない。
+ *
+ * ▼▼▼ 設定が必要 ▼▼▼
+ * https://fonts.google.com/noto/specimen/Noto+Sans+JP からフォントをダウンロードし、
+ * 中に入っている「NotoSansJP-Regular.ttf」(staticフォルダ内にあるもの)を、
+ * この index.html と同じフォルダに置いてください。
+ * (信頼できない外部サイトのフォントファイルを使うと、フォントが壊れていて
+ *  PDFが白紙になることがあるため、公式サイトから取得したファイルを使ってください)
  */
+const JAPANESE_FONT_URL = './NotoSansJP-Regular.ttf';
+
 let cachedJapaneseFontBase64 = null;
 
 async function getJapaneseFontBase64(){
   if(cachedJapaneseFontBase64){
     return cachedJapaneseFontBase64;
   }
-  const fontUrl = 'https://cdn.jsdelivr.net/gh/kongou-ae/font/NotoSansJP-Regular.ttf';
-  const res = await fetch(fontUrl);
+  const res = await fetch(JAPANESE_FONT_URL);
   if(!res.ok){
-    throw new Error('日本語フォントの取得に失敗しました (status ' + res.status + ')');
+    throw new Error(
+      '日本語フォントファイル(' + JAPANESE_FONT_URL + ')が見つかりません。' +
+      'NotoSansJP-Regular.ttf を index.html と同じ場所に置いてください。'
+    );
   }
   const buffer = await res.arrayBuffer();
+
+  if(buffer.byteLength < 100000){
+    throw new Error(
+      'フォントファイルのサイズが小さすぎます(' + buffer.byteLength + 'バイト)。' +
+      '正しいNotoSansJP-Regular.ttfファイルかご確認ください。'
+    );
+  }
+
   cachedJapaneseFontBase64 = arrayBufferToBase64(buffer);
   return cachedJapaneseFontBase64;
 }
