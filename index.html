@@ -6,6 +6,7 @@
 <title>Fuzone — AIチャット</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700;800&family=Zen+Maru+Gothic:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -347,6 +348,63 @@
   .pdf-export-btn:disabled{ opacity: 0.6; cursor: default; }
   .pdf-export-btn .pdf-icon{ font-size: 14px; }
 
+  /* Mermaid diagram block */
+  .mermaid-block{
+    margin: 14px 0;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    background: #f7f3ea;
+    padding: 16px;
+    overflow-x: auto;
+  }
+  .mermaid-block .mermaid{
+    display: flex;
+    justify-content: center;
+  }
+  .mermaid-block svg{
+    max-width: 100%;
+  }
+
+  /* Feature toggle buttons (PDF / Mermaid) */
+  .feature-toggles{
+    max-width: 760px;
+    margin: 0 auto 10px;
+    display: flex;
+    gap: 8px;
+  }
+  .toggle-btn{
+    display:flex;
+    align-items:center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 6px 13px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .toggle-btn:hover{ border-color: var(--accent-dim); color: var(--text); }
+  .toggle-btn.active{
+    background: linear-gradient(155deg, rgba(231,162,60,0.22), rgba(231,162,60,0.1));
+    border-color: var(--accent-dim);
+    color: var(--accent-soft);
+    box-shadow: 0 0 0 1px rgba(231,162,60,0.12);
+  }
+  .toggle-btn .toggle-dot{
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background .2s;
+  }
+  .toggle-btn.active .toggle-dot{
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+  }
+
   /* Footer / input */
   footer{
     border-top: 1px solid transparent;
@@ -578,6 +636,14 @@
 </main>
 
 <footer>
+  <div class="feature-toggles">
+    <button class="toggle-btn" id="pdfToggleBtn" type="button">
+      <span class="toggle-dot"></span><span>📄 PDF</span>
+    </button>
+    <button class="toggle-btn" id="mermaidToggleBtn" type="button">
+      <span class="toggle-dot"></span><span>📊 図解</span>
+    </button>
+  </div>
   <div class="input-wrap">
     <textarea id="userInput" placeholder="メッセージを入力…" rows="1"></textarea>
     <button id="sendBtn" title="送信">
@@ -596,7 +662,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxNZf62Wr3Y2YfnysyC-t0L2Y996_Et2VZ3TUKGDfBZMfa3JXNqNakM_vVe8VWlVBtKjg/exec";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbywbmOB-DJGf__HxLt9RHDBymkTjzrSE4r2PpIHnvSWA9PegEt0M67rZNDJCaIp-Fpu5A/exec";
 /* ============================================================ */
 /* アクセスパスワードはコード内には書きません。
    ページを開いたときに入力ダイアログが表示され、入力された値は
@@ -614,6 +680,38 @@ let conversation = [];
 let isSending = false;
 let sessionPassword = null;
 let currentUsername = null;
+let enablePdf = false;
+let enableMermaid = false;
+
+if(window.mermaid){
+  window.mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#f0e2c6',
+      primaryTextColor: '#100f0c',
+      primaryBorderColor: '#8a611f',
+      lineColor: '#6b5a3a',
+      secondaryColor: '#e7d4ad',
+      tertiaryColor: '#fbf6ea',
+      fontFamily: 'Zen Maru Gothic, sans-serif',
+      fontSize: '15px'
+    },
+    flowchart: { useMaxWidth: true, htmlLabels: true }
+  });
+}
+
+const pdfToggleBtn = document.getElementById('pdfToggleBtn');
+const mermaidToggleBtn = document.getElementById('mermaidToggleBtn');
+
+pdfToggleBtn.addEventListener('click', () => {
+  enablePdf = !enablePdf;
+  pdfToggleBtn.classList.toggle('active', enablePdf);
+});
+mermaidToggleBtn.addEventListener('click', () => {
+  enableMermaid = !enableMermaid;
+  mermaidToggleBtn.classList.toggle('active', enableMermaid);
+});
 
 const pwOverlay = document.getElementById('pwOverlay');
 const pwInput = document.getElementById('pwInput');
@@ -729,55 +827,96 @@ function scrollToBottom(){
 }
 
 /**
- * AIの回答テキストを、通常のMarkdown部分と
- * ===PDF_START=== 〜 ===PDF_END=== で囲まれたPDF化対象部分に分けて表示する。
+ * AIの回答テキストを、通常のMarkdown部分・
+ * ===PDF_START=== 〜 ===PDF_END=== のPDF化対象部分・
+ * ===MERMAID_START=== 〜 ===MERMAID_END=== の図解部分に分けて表示する。
  */
 let pdfBlockCounter = 0;
 
-function renderBotMessage(container, rawText){
-  container.innerHTML = '';
-  const regex = /===PDF_START===([\s\S]*?)===PDF_END===/g;
+function splitIntoSegments(rawText){
+  const combinedRegex = /===PDF_START===([\s\S]*?)===PDF_END===|===MERMAID_START===([\s\S]*?)===MERMAID_END===/g;
+  const segments = [];
   let lastIndex = 0;
   let match;
-  let foundAny = false;
 
-  while((match = regex.exec(rawText)) !== null){
-    foundAny = true;
+  while((match = combinedRegex.exec(rawText)) !== null){
     const before = rawText.slice(lastIndex, match.index);
-    if(before.trim()){
-      const textDiv = document.createElement('div');
-      textDiv.innerHTML = marked.parse(before);
-      container.appendChild(textDiv);
+    if(before){
+      segments.push({ type: 'text', value: before });
     }
-
-    const pdfMarkdown = match[1].trim();
-    const blockId = 'pdfblock-' + (++pdfBlockCounter);
-
-    const pdfWrap = document.createElement('div');
-    pdfWrap.className = 'pdf-block';
-
-    const pdfInner = document.createElement('div');
-    pdfInner.className = 'pdf-block-content';
-    pdfInner.id = blockId;
-    pdfInner.innerHTML = marked.parse(pdfMarkdown);
-
-    const pdfBtn = document.createElement('button');
-    pdfBtn.className = 'pdf-export-btn';
-    pdfBtn.innerHTML = '<span class="pdf-icon">📄</span><span>PDFとして保存</span>';
-    pdfBtn.addEventListener('click', () => exportMarkdownToPdf(pdfMarkdown, pdfBtn));
-
-    pdfWrap.appendChild(pdfInner);
-    pdfWrap.appendChild(pdfBtn);
-    container.appendChild(pdfWrap);
-
-    lastIndex = regex.lastIndex;
+    if(match[1] !== undefined){
+      segments.push({ type: 'pdf', value: match[1].trim() });
+    } else if(match[2] !== undefined){
+      segments.push({ type: 'mermaid', value: match[2].trim() });
+    }
+    lastIndex = combinedRegex.lastIndex;
   }
 
   const rest = rawText.slice(lastIndex);
-  if(rest.trim() || !foundAny){
-    const textDiv = document.createElement('div');
-    textDiv.innerHTML = marked.parse(rest);
-    container.appendChild(textDiv);
+  if(rest || segments.length === 0){
+    segments.push({ type: 'text', value: rest });
+  }
+  return segments;
+}
+
+function renderBotMessage(container, rawText){
+  container.innerHTML = '';
+  const segments = splitIntoSegments(rawText);
+
+  segments.forEach((seg) => {
+    if(seg.type === 'text'){
+      if(seg.value.trim()){
+        const textDiv = document.createElement('div');
+        textDiv.innerHTML = marked.parse(seg.value);
+        container.appendChild(textDiv);
+      }
+
+    } else if(seg.type === 'pdf'){
+      const pdfMarkdown = seg.value;
+      const blockId = 'pdfblock-' + (++pdfBlockCounter);
+
+      const pdfWrap = document.createElement('div');
+      pdfWrap.className = 'pdf-block';
+
+      const pdfInner = document.createElement('div');
+      pdfInner.className = 'pdf-block-content';
+      pdfInner.id = blockId;
+      pdfInner.innerHTML = marked.parse(pdfMarkdown);
+
+      const pdfBtn = document.createElement('button');
+      pdfBtn.className = 'pdf-export-btn';
+      pdfBtn.innerHTML = '<span class="pdf-icon">📄</span><span>PDFとして保存</span>';
+      pdfBtn.addEventListener('click', () => exportMarkdownToPdf(pdfMarkdown, pdfBtn));
+
+      pdfWrap.appendChild(pdfInner);
+      pdfWrap.appendChild(pdfBtn);
+      container.appendChild(pdfWrap);
+
+    } else if(seg.type === 'mermaid'){
+      const wrap = document.createElement('div');
+      wrap.className = 'mermaid-block';
+
+      const mermaidDiv = document.createElement('div');
+      mermaidDiv.className = 'mermaid';
+      mermaidDiv.textContent = seg.value;
+
+      wrap.appendChild(mermaidDiv);
+      container.appendChild(wrap);
+    }
+  });
+
+  // 追加したMermaidブロックをまとめて描画する
+  if(window.mermaid){
+    const targets = container.querySelectorAll('.mermaid');
+    if(targets.length > 0){
+      try{
+        window.mermaid.run({ nodes: targets });
+      } catch(err){
+        targets.forEach((el) => {
+          el.textContent = '(図の描画に失敗しました: ' + err.message + ')';
+        });
+      }
+    }
   }
 }
 
@@ -877,11 +1016,105 @@ async function exportMarkdownToPdf(markdownText, btn){
 
     const rawLines = markdownText.split('\n');
 
-    rawLines.forEach((rawLine) => {
+    function isTableLine(line){
+      // パイプ(|)を1つ以上含む行を「表の行」とみなす(前後の|は必須としない)
+      return line.includes('|');
+    }
+
+    function isSeparatorRow(line){
+      // |---|:--:|---| のような区切り行かどうか
+      return /^[\s|:\-]+$/.test(line) && line.includes('-');
+    }
+
+    function drawTable(tableLines){
+      const rows = tableLines
+        .map((l) => {
+          let t = l.trim();
+          if(t.startsWith('|')) t = t.slice(1);
+          if(t.endsWith('|')) t = t.slice(0, -1);
+          return t.split('|').map((c) => c.replace(/\*\*/g, '').trim());
+        });
+
+      // 区切り行(---|---)は除外する
+      const dataRows = rows.filter((cells) => !isSeparatorRow(cells.join('|')));
+      if(dataRows.length === 0) return;
+
+      const hasHeader = rows.length > 1 && isSeparatorRow(
+        tableLines[1] ? tableLines[1].trim() : ''
+      );
+
+      const colCount = Math.max(...dataRows.map((r) => r.length));
+      const colWidth = maxWidth / colCount;
+      const cellPadding = 5;
+      const fontSize = 9.5;
+      const lineHeight = 12;
+
+      pdf.setFontSize(fontSize);
+
+      dataRows.forEach((cells, rowIndex) => {
+        // 各セルを折り返した時の行数から、この行の高さを決める
+        const wrapped = [];
+        for(let c = 0; c < colCount; c++){
+          const text = cells[c] || '';
+          wrapped.push(pdf.splitTextToSize(text, colWidth - cellPadding * 2));
+        }
+        const rowLineCount = Math.max(1, ...wrapped.map((w) => w.length));
+        const rowHeight = rowLineCount * lineHeight + cellPadding * 1.6;
+
+        ensureSpace(rowHeight);
+        const rowTop = y;
+
+        const isHeaderRow = hasHeader && rowIndex === 0;
+        if(isHeaderRow){
+          pdf.setFillColor(238, 226, 198);
+          pdf.rect(margin, rowTop, maxWidth, rowHeight, 'F');
+        }
+
+        // セルのテキストを描く
+        for(let c = 0; c < colCount; c++){
+          const cellX = margin + colWidth * c + cellPadding;
+          wrapped[c].forEach((lineText, li) => {
+            pdf.text(lineText, cellX, rowTop + cellPadding + lineHeight * (li + 0.75));
+          });
+        }
+
+        // 罫線(外枠・縦線・下線)
+        pdf.setDrawColor(180, 170, 140);
+        pdf.setLineWidth(0.6);
+        pdf.rect(margin, rowTop, maxWidth, rowHeight);
+        for(let c = 1; c < colCount; c++){
+          const lineX = margin + colWidth * c;
+          pdf.line(lineX, rowTop, lineX, rowTop + rowHeight);
+        }
+
+        y = rowTop + rowHeight;
+      });
+
+      y += 8;
+    }
+
+    let i = 0;
+    while(i < rawLines.length){
+      const rawLine = rawLines[i];
       const line = rawLine.trim();
+
       if(!line){
         y += 8;
-        return;
+        i++;
+        continue;
+      }
+
+      // 表ブロック: 連続する「|を含む行」をまとめて1つの表として描画する
+      if(isTableLine(line)){
+        const tableLines = [];
+        let j = i;
+        while(j < rawLines.length && isTableLine(rawLines[j].trim()) ){
+          tableLines.push(rawLines[j].trim());
+          j++;
+        }
+        drawTable(tableLines);
+        i = j;
+        continue;
       }
 
       // **太字** の記号は除去する(埋め込みフォントが1種類のため太字表現はしない)
@@ -903,18 +1136,12 @@ async function exportMarkdownToPdf(markdownText, btn){
         drawParagraph('・' + cleaned.replace(/^[-・]\s+/, ''), 11, 16, 12);
       } else if(/^\d+[\.\)]\s+/.test(line)){
         drawParagraph(cleaned, 11, 16, 12);
-      } else if(/^\|.*\|$/.test(line)){
-        const cells = cleaned
-          .split('|')
-          .map((c) => c.trim())
-          .filter((c) => c.length > 0 && !/^-+$/.test(c));
-        if(cells.length){
-          drawParagraph(cells.join('　|　'), 10.5, 15);
-        }
       } else {
         drawParagraph(cleaned, 11.5, 17);
       }
-    });
+
+      i++;
+    }
 
     pdf.save('fuzone-' + Date.now() + '.pdf');
 
@@ -1000,7 +1227,13 @@ async function sendMessage(){
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
-      body: JSON.stringify({ password: sessionPassword, username: currentUsername, messages: conversation })
+      body: JSON.stringify({
+        password: sessionPassword,
+        username: currentUsername,
+        messages: conversation,
+        enablePdf: enablePdf,
+        enableMermaid: enableMermaid
+      })
     });
 
     if(!response.ok){
