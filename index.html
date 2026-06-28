@@ -127,6 +127,28 @@
     color: var(--text-dim);
     margin-top: 2px;
   }
+  .model-select{
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+    padding: 2px 16px 2px 0;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239c9586' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 2px center;
+  }
+  .model-select:hover{ color: var(--accent-soft); }
+  .model-select option{
+    background: var(--panel-light);
+    color: var(--text);
+  }
   .status{
     font-size: 12px;
     color: var(--text-dim);
@@ -622,7 +644,11 @@
     <div class="brand-seal">附</div>
     <div class="brand-text">
       <div class="brand-mark">Fu<span>zone</span></div>
-      <div class="brand-sub">GPT-OSS 120B</div>
+      <select class="model-select" id="modelSelect">
+        <option value="gpt-oss-120b">GPT-OSS 120B</option>
+        <option value="groq-compound-mini">Groq Compound Mini</option>
+        <option value="gemma-4-31b">Gemma 4 31B（検索つき）</option>
+      </select>
     </div>
   </div>
   <div class="status">
@@ -636,7 +662,7 @@
     <div class="empty-state" id="emptyState">
       <div class="glyph-ring"><div class="glyph">附Z</div></div>
       <h3>ようこそ、Fuzoneへ</h3>
-      <p>下の入力欄からメッセージを送って、<br>GPT-OSS 120Bと話してみましょう。</p>
+      <p>下の入力欄からメッセージを送って、<br>AIと話してみましょう。</p>
     </div>
   </div>
 </main>
@@ -658,7 +684,7 @@
       </svg>
     </button>
   </div>
-  <div class="footnote">Fuzone は GAS プロキシ経由で Groq API（GPT-OSS 120B）を利用しています</div>
+  <div class="footnote">Fuzone は GAS プロキシ経由でAIモデルを利用しています</div>
 </footer>
 
 <script>
@@ -668,7 +694,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbywbmOB-DJGf__HxLt9RHDBymkTjzrSE4r2PpIHnvSWA9PegEt0M67rZNDJCaIp-Fpu5A/exec";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwYVVKlpRH5k4D6h20y9uMTsI6DuPs8veHBNfQCIqjKyow_L57W4PdiEFoo2rqCWxU1nA/exec";
 /* ============================================================ */
 /* アクセスパスワードはコード内には書きません。
    ページを開いたときに入力ダイアログが表示され、入力された値は
@@ -709,6 +735,7 @@ if(window.mermaid){
 
 const pdfToggleBtn = document.getElementById('pdfToggleBtn');
 const mermaidToggleBtn = document.getElementById('mermaidToggleBtn');
+const modelSelect = document.getElementById('modelSelect');
 
 pdfToggleBtn.addEventListener('click', () => {
   enablePdf = !enablePdf;
@@ -1238,7 +1265,8 @@ async function sendMessage(){
         username: currentUsername,
         messages: conversation,
         enablePdf: enablePdf,
-        enableMermaid: enableMermaid
+        enableMermaid: enableMermaid,
+        model: modelSelect.value
       })
     });
 
