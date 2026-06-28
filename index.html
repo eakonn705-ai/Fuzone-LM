@@ -127,28 +127,6 @@
     color: var(--text-dim);
     margin-top: 2px;
   }
-  .model-select{
-    appearance: none;
-    -webkit-appearance: none;
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    margin-top: 2px;
-    padding: 2px 16px 2px 0;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239c9586' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 2px center;
-  }
-  .model-select:hover{ color: var(--accent-soft); }
-  .model-select option{
-    background: var(--panel-light);
-    color: var(--text);
-  }
   .status{
     font-size: 12px;
     color: var(--text-dim);
@@ -394,6 +372,37 @@
   }
 
   /* Feature toggle buttons (PDF / Mermaid) */
+  /* Model mode toggle (高速モード / 検索モード) */
+  .model-toggle-row{
+    max-width: 760px;
+    margin: 0 auto 10px;
+    display: flex;
+    gap: 8px;
+    padding: 4px;
+    background: var(--panel-light);
+    border: 1px solid var(--border);
+    border-radius: 13px;
+  }
+  .model-toggle-btn{
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .model-toggle-btn:hover{ color: var(--text); }
+  .model-toggle-btn.active{
+    background: linear-gradient(155deg, var(--accent-soft), var(--accent-dim));
+    color: var(--bg-deep);
+    box-shadow: 0 3px 12px rgba(231,162,60,0.3);
+  }
+
   .feature-toggles{
     max-width: 760px;
     margin: 0 auto 10px;
@@ -644,11 +653,6 @@
     <div class="brand-seal">附</div>
     <div class="brand-text">
       <div class="brand-mark">Fu<span>zone</span></div>
-      <select class="model-select" id="modelSelect">
-        <option value="gpt-oss-120b">GPT-OSS 120B</option>
-        <option value="groq-compound-mini">Groq Compound Mini</option>
-        <option value="gemma-4-31b">Gemma 4 31B（検索つき）</option>
-      </select>
     </div>
   </div>
   <div class="status">
@@ -668,6 +672,10 @@
 </main>
 
 <footer>
+  <div class="model-toggle-row">
+    <button class="model-toggle-btn active" id="modelFastBtn" type="button">⚡ 高速モード (GPT)</button>
+    <button class="model-toggle-btn" id="modelSearchBtn" type="button">🔎 検索モード (Gemini)</button>
+  </div>
   <div class="feature-toggles">
     <button class="toggle-btn" id="pdfToggleBtn" type="button">
       <span class="toggle-dot"></span><span>📄 PDF</span>
@@ -694,7 +702,7 @@
    ウェブアプリのURL（https://script.google.com/macros/s/.../exec）
    を貼り付けてください。Groq APIキーはGAS側にのみ保存されます。
    ============================================================ */
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwYVVKlpRH5k4D6h20y9uMTsI6DuPs8veHBNfQCIqjKyow_L57W4PdiEFoo2rqCWxU1nA/exec";
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbymXJsOSvE2TmfTS5nzeapdUGRZehfg3SC1f2y-tzYMStzsnHtZ66HBbv4JhdJtOc7avw/exec";
 /* ============================================================ */
 /* アクセスパスワードはコード内には書きません。
    ページを開いたときに入力ダイアログが表示され、入力された値は
@@ -735,7 +743,20 @@ if(window.mermaid){
 
 const pdfToggleBtn = document.getElementById('pdfToggleBtn');
 const mermaidToggleBtn = document.getElementById('mermaidToggleBtn');
-const modelSelect = document.getElementById('modelSelect');
+let selectedModel = 'gpt-oss-120b';
+const modelFastBtn = document.getElementById('modelFastBtn');
+const modelSearchBtn = document.getElementById('modelSearchBtn');
+
+modelFastBtn.addEventListener('click', () => {
+  selectedModel = 'gpt-oss-120b';
+  modelFastBtn.classList.add('active');
+  modelSearchBtn.classList.remove('active');
+});
+modelSearchBtn.addEventListener('click', () => {
+  selectedModel = 'gemma-4-31b';
+  modelSearchBtn.classList.add('active');
+  modelFastBtn.classList.remove('active');
+});
 
 pdfToggleBtn.addEventListener('click', () => {
   enablePdf = !enablePdf;
@@ -1266,7 +1287,7 @@ async function sendMessage(){
         messages: conversation,
         enablePdf: enablePdf,
         enableMermaid: enableMermaid,
-        model: modelSelect.value
+        model: selectedModel
       })
     });
 
